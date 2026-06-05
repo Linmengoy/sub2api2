@@ -88,9 +88,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	// 设置操作日志上下文（先记录空模型，后续更新）
 	if isMultipartImagesContentType(c.GetHeader("Content-Type")) {
-		setOpsRequestContext(c, "", false, nil)
+		setOpsRequestContext(c, "", false)
 	} else {
-		setOpsRequestContext(c, "", false, body)
+		setOpsRequestContext(c, "", false)
 	}
 
 	// ========== 阶段3：请求解析 ==========
@@ -100,10 +100,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	requestModel := parsed.Model
 
 	// 更新日志记录器，添加解析后的请求信息
 	reqLog = reqLog.With(
-		zap.String("model", parsed.Model),
+		zap.String("model", requestModel),
 		zap.Bool("stream", parsed.Stream),
 		zap.Bool("multipart", parsed.Multipart),
 		zap.String("capability", string(parsed.RequiredCapability)),
@@ -115,7 +116,6 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
-
 	// 内容审核检查
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, parsed.Model, parsed.ModerationBody()); decision != nil && decision.Blocked {
 		h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
@@ -134,9 +134,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	// 更新操作日志上下文（包含模型信息）
 	if parsed.Multipart {
-		setOpsRequestContext(c, parsed.Model, parsed.Stream, nil)
+		setOpsRequestContext(c, requestModel, parsed.Stream)
 	} else {
-		setOpsRequestContext(c, parsed.Model, parsed.Stream, body)
+		setOpsRequestContext(c, requestModel, parsed.Stream)
 	}
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsed.Stream, false)))
 
@@ -165,7 +165,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	}
 
 	// ========== 阶段6：计费检查 ==========
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai.images.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -193,7 +193,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			c.Request.Context(),
 			apiKey.GroupID,
 			sessionHash,
-			parsed.Model,
+			requestModel,
 			failedAccountIDs,
 			parsed.RequiredCapability,
 		)
@@ -250,18 +250,15 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		// 记录路由阶段耗时
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
-
-		// 转发请求到上游
-		result, err := h.gatewayService.ForwardImages(c.Request.Context(), c, account, body, parsed, channelMapping.MappedModel)
-
+		result, err := func() (*service.OpenAIForwardResult, error) {
+			defer func() {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+			}()
+			return h.gatewayService.ForwardImages(c.Request.Context(), c, account, body, parsed, channelMapping.MappedModel)
+		}()
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
-
-		// 释放账户槽位
-		if accountReleaseFunc != nil {
-			accountReleaseFunc()
-		}
-
-		// 统计响应耗时
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
 		if upstreamLatencyMs > 0 && forwardDurationMs > upstreamLatencyMs {
@@ -282,7 +279,18 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					zap.Error(err),
 				)
 			} else {
-				// 故障转移处理
+				var imageUpstreamErr *service.OpenAIImagesUpstreamError
+				if errors.As(err, &imageUpstreamErr) {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
+					reqLog.Warn("openai.images.upstream_user_error",
+						zap.Int64("account_id", account.ID),
+						zap.Int("status_code", imageUpstreamErr.StatusCode),
+						zap.String("error_type", imageUpstreamErr.ErrorType),
+						zap.String("error_code", imageUpstreamErr.Code),
+						zap.Error(err),
+					)
+					return
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
@@ -319,6 +327,10 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 						return
 					}
 					switchCount++
+					if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount) {
+						h.handleFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
 					reqLog.Warn("openai.images.upstream_failover_switching",
 						zap.Int64("account_id", account.ID),
 						zap.Int("upstream_status", failoverErr.StatusCode),
@@ -388,9 +400,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		if result != nil {
 			upstreamModel = result.UpstreamModel
 		}
-
-		// 异步提交使用记录任务
-		h.submitMandatoryUsageRecordTask(func(ctx context.Context) {
+		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
 				APIKey:             apiKey,
@@ -403,14 +413,14 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
-				ChannelUsageFields: channelMapping.ToUsageFields(parsed.Model, upstreamModel),
+				ChannelUsageFields: channelMapping.ToUsageFields(requestModel, upstreamModel),
 			}); err != nil {
 				logger.L().With(
 					zap.String("component", "handler.openai_gateway.images"),
 					zap.Int64("user_id", subject.UserID),
 					zap.Int64("api_key_id", apiKey.ID),
 					zap.Any("group_id", apiKey.GroupID),
-					zap.String("model", parsed.Model),
+					zap.String("model", requestModel),
 					zap.Int64("account_id", account.ID),
 				).Error("openai.images.record_usage_failed", zap.Error(err))
 			}
