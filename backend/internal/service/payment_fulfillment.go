@@ -645,30 +645,29 @@ func (s *PaymentService) ExecutePackageRedeemFulfillment(ctx context.Context, oi
 	if o.SubscriptionGroupID == nil || o.SubscriptionDays == nil || *o.SubscriptionDays <= 0 {
 		return infraerrors.BadRequest("INVALID_STATUS", "missing package redeem subscription info")
 	}
-	c, err := s.entClient.PaymentOrder.Update().Where(paymentorder.IDEQ(oid), paymentorder.StatusIn(OrderStatusPaid, OrderStatusFailed)).SetStatus(OrderStatusRecharging).Save(ctx)
+	lease, err := s.acquirePaymentFulfillmentLease(ctx, o)
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
-	if c == 0 {
+	if lease == nil {
 		return nil
 	}
-	// 实际兑换码
-	if err := s.doPackageRedeem(ctx, o); err != nil {
-		s.markFailed(ctx, oid, err)
+	if err := s.doPackageRedeem(ctx, o, lease); err != nil {
+		s.markFailed(ctx, oid, lease, err)
 		return err
 	}
 	return nil
 }
 
-func (s *PaymentService) doPackageRedeem(ctx context.Context, o *dbent.PaymentOrder) error {
+func (s *PaymentService) doPackageRedeem(ctx context.Context, o *dbent.PaymentOrder, lease *paymentFulfillmentLease) error {
 	// 审计日志幂等性检查
 	if s.hasAuditLog(ctx, o.ID, "PACKAGE_REDEEM_CODE_SUCCESS") {
-		return s.markCompleted(ctx, o, "PACKAGE_REDEEM_CODE_SUCCESS")
+		return s.markCompleted(ctx, o, lease, "PACKAGE_REDEEM_CODE_SUCCESS")
 	}
 
 	existing, lookupErr := s.redeemService.GetByCode(ctx, o.RechargeCode)
 	if existing != nil && lookupErr == nil {
-		return s.markCompleted(ctx, o, "PACKAGE_REDEEM_CODE_SUCCESS")
+		return s.markCompleted(ctx, o, lease, "PACKAGE_REDEEM_CODE_SUCCESS")
 	}
 	if lookupErr != nil && !errors.Is(lookupErr, ErrRedeemCodeNotFound) {
 		return fmt.Errorf("lookup package redeem code: %w", lookupErr)
@@ -689,7 +688,7 @@ func (s *PaymentService) doPackageRedeem(ctx context.Context, o *dbent.PaymentOr
 	if err := s.redeemService.CreateCode(ctx, rc); err != nil {
 		return fmt.Errorf("create package redeem code: %w", err)
 	}
-	return s.markCompleted(ctx, o, "PACKAGE_REDEEM_CODE_SUCCESS")
+	return s.markCompleted(ctx, o, lease, "PACKAGE_REDEEM_CODE_SUCCESS")
 }
 func (s *PaymentService) hasAuditLog(ctx context.Context, orderID int64, action string) bool {
 	oid := strconv.FormatInt(orderID, 10)
