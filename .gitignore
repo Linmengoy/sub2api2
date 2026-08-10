@@ -146,3 +146,6 @@ output/
 build-mac.sh
 build-win.bat
 build-win-test.bat
+
+# Vitest / Vite cache at repo root
+.vite/

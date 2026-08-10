@@ -54,15 +54,18 @@ type Handlers struct {
 	Subscription     *SubscriptionHandler
 	Announcement     *AnnouncementHandler
 	ChannelMonitor   *ChannelMonitorUserHandler
+	ChannelMonitorV2 *ChannelMonitorV2Handler
 	Admin            *AdminHandlers
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler
 	Setting          *SettingHandler
 	Totp             *TotpHandler
+	Passkey          *PasskeyHandler
 	Payment          *PaymentHandler
 	PaymentWebhook   *PaymentWebhookHandler
 	PackageRedeemAff *PackageRedeemAffiliateHandler
 	AvailableChannel *AvailableChannelHandler
+	ModelPlaza       *ModelPlazaHandler
 	AsyncImage       *AsyncImageHandler
 	BatchImage       *BatchImageHandler
 }

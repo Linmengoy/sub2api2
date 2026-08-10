@@ -101,13 +101,26 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 	requestModel := parsed.Model
+	ensureCompositeTargetPlatform(c, apiKey, requestModel)
+	clientRequestModel := clientRequestedModel(c, requestModel)
+	routingModel := requestModel
+	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok {
+		routingModel = resolvedModel
+	}
+	if !compositeTargetPlatformAllowed(c, apiKey, requestModel, service.PlatformOpenAI) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
+		return
+	}
 
 	// 更新日志记录器，添加解析后的请求信息
 	reqLog = reqLog.With(
-		zap.String("model", requestModel),
+		zap.String("model", clientRequestModel),
+		zap.String("routing_model", routingModel),
 		zap.Bool("stream", parsed.Stream),
 		zap.Bool("multipart", parsed.Multipart),
 		zap.String("capability", string(parsed.RequiredCapability)),
+		zap.String("img_quality", parsed.Quality),
+		zap.String("img_size", parsed.Size),
 	)
 
 	// ========== 阶段4：权限与内容审核 ==========
@@ -131,16 +144,10 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		defer imageReleaseFunc()
 	}
 
-	// 更新操作日志上下文（包含模型信息）
-	if parsed.Multipart {
-		setOpsRequestContext(c, requestModel, parsed.Stream)
-	} else {
-		setOpsRequestContext(c, requestModel, parsed.Stream)
-	}
+	setOpsRequestContext(c, clientRequestModel, parsed.Stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsed.Stream, false)))
 
-	// 解析渠道映射（用于模型路由和计费）
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, requestModel)
+	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, routingModel)
 
 	// 绑定错误透传服务（如果配置了）
 	if h.errorPassthroughService != nil {
@@ -176,14 +183,15 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	// 生成会话哈希（用于会话粘性和账户选择）
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
-	requestCtx := service.WithOpenAIImageGenerationIntent(c.Request.Context())
+	requestCtx := service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
 
 	// ========== 阶段7：账户选择与故障转移循环 ==========
-	maxAccountSwitches := h.maxAccountSwitches         // 最大账户切换次数
-	switchCount := 0                                   // 当前切换次数
-	failedAccountIDs := make(map[int64]struct{})       // 已失败的账户ID集合
-	sameAccountRetryCount := make(map[int64]int)       // 同一账户重试次数
-	var lastFailoverErr *service.UpstreamFailoverError // 最后一次故障转移错误
+	maxAccountSwitches := h.maxAccountSwitches
+	switchCount := 0
+	profitVetoCount := 0
+	failedAccountIDs := make(map[int64]struct{})
+	sameAccountRetryCount := make(map[int64]int)
+	var lastFailoverErr *service.UpstreamFailoverError
 	stopJSONKeepalive := func() {}
 	jsonKeepaliveStarted := false
 	defer func() { stopJSONKeepalive() }()
@@ -197,7 +205,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			requestCtx,
 			apiKey.GroupID,
 			sessionHash,
-			requestModel,
+			routingModel,
 			failedAccountIDs,
 			parsed.RequiredCapability,
 		)
@@ -213,7 +221,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, requestModel, service.PlatformOpenAI)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
@@ -234,7 +242,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		}
 
 		if selection == nil || selection.Account == nil {
-			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, requestModel, service.PlatformOpenAI)
+			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
 			}
@@ -262,9 +270,16 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		reqLog.Debug("openai.images.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
-		// 获取账户并发槽位（限制单个账户的并发请求数）
-		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, parsed.Stream, &streamStarted, reqLog)
-		if !acquired {
+		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, parsed.Stream, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireProfitVetoed {
+			// Images 调度不装利润门，此分支实际不可达；防御性排除重选并受同一否决上限约束。
+			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
+				return
+			}
+			continue
+		}
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
 
@@ -453,6 +468,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		if result != nil {
 			upstreamModel = result.UpstreamModel
 		}
+		sessionID := service.ExtractClientSessionID(c)
 
 		// 异步提交使用记录任务
 		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
@@ -469,14 +485,15 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
 				QuotaPlatform:      quotaPlatform,
-				ChannelUsageFields: channelMapping.ToUsageFields(requestModel, upstreamModel),
+				SessionID:          sessionID,
+				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
 			}); err != nil {
 				logger.L().With(
 					zap.String("component", "handler.openai_gateway.images"),
 					zap.Int64("user_id", subject.UserID),
 					zap.Int64("api_key_id", apiKey.ID),
 					zap.Any("group_id", apiKey.GroupID),
-					zap.String("model", requestModel),
+					zap.String("model", clientRequestModel),
 					zap.Int64("account_id", account.ID),
 				).Error("openai.images.record_usage_failed", zap.Error(err))
 			}
