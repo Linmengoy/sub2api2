@@ -1,0 +1,30 @@
+(ferti_static) {
+	root * /srv/ferti.fun
+	encode zstd gzip
+	file_server
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	}
+
+	log {
+		output file /var/log/caddy/ferti.fun.log {
+			roll_size 20mb
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		format json
+	}
+}
+
+www.ferti.fun {
+	import ferti_static
+}
+
+ferti.fun {
+	import ferti_static
+}

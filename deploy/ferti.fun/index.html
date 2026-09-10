@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f3ed">
+    <meta name="description" content="Ferti.fun 数字服务平台，提供清晰、可靠、易用的在线工具。">
+    <title>Ferti.fun｜数字服务平台</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #18231f;
+        --muted: #65716b;
+        --line: #dfe5dd;
+        --paper: #fbfaf7;
+        --wash: #f2f4ed;
+        --leaf: #176b52;
+        --leaf-dark: #0f493a;
+        --mint: #d7eee1;
+        --sun: #f0b85b;
+        --shadow: 0 18px 50px rgba(24, 35, 31, .08);
+      }
+
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--paper);
+        font-family: "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+        line-height: 1.7;
+      }
+      a { color: inherit; }
+      .shell { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+
+      .topbar {
+        border-bottom: 1px solid rgba(223, 229, 221, .85);
+        background: rgba(251, 250, 247, .94);
+      }
+      .nav {
+        min-height: 76px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        text-decoration: none;
+        font-size: 18px;
+        font-weight: 760;
+        letter-spacing: 0;
+      }
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        background: var(--leaf);
+        box-shadow: 0 7px 18px rgba(23, 107, 82, .22);
+      }
+      .brand-mark svg { width: 19px; height: 19px; }
+      .nav-links { display: flex; gap: 24px; color: var(--muted); font-size: 14px; }
+      .nav-links a { text-decoration: none; }
+      .nav-links a:hover, .nav-links a:focus-visible { color: var(--leaf); }
+
+      .hero {
+        padding: 88px 0 76px;
+        background-color: var(--wash);
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr);
+        align-items: end;
+        gap: 72px;
+      }
+      .kicker {
+        margin: 0 0 18px;
+        color: var(--leaf);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+      h1, h2, h3, p { margin-top: 0; }
+      h1 {
+        max-width: 680px;
+        margin-bottom: 22px;
+        font-size: 64px;
+        line-height: 1.08;
+        letter-spacing: 0;
+        font-weight: 820;
+      }
+      .hero-copy {
+        max-width: 590px;
+        margin-bottom: 32px;
+        color: #53615a;
+        font-size: 18px;
+      }
+      .hero-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 17px;
+        border: 1px solid var(--leaf);
+        border-radius: 8px;
+        color: #fff;
+        background: var(--leaf);
+        font-size: 14px;
+        font-weight: 720;
+        text-decoration: none;
+      }
+      .hero-link:hover, .hero-link:focus-visible { background: var(--leaf-dark); }
+      .hero-link svg { width: 16px; height: 16px; }
+      .hero-note {
+        padding: 24px;
+        border: 1px solid rgba(23, 107, 82, .18);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, .68);
+        box-shadow: var(--shadow);
+      }
+      .hero-note-label { margin-bottom: 9px; color: var(--muted); font-size: 12px; letter-spacing: 0; }
+      .hero-note strong { display: block; margin-bottom: 10px; color: var(--leaf-dark); font-size: 25px; line-height: 1.25; }
+      .hero-note p { margin-bottom: 0; color: var(--muted); font-size: 14px; }
+
+      .section { padding: 82px 0; }
+      .section-heading { max-width: 650px; margin-bottom: 34px; }
+      .section-heading h2 { margin-bottom: 10px; font-size: 34px; line-height: 1.2; letter-spacing: 0; }
+      .section-heading p { margin-bottom: 0; color: var(--muted); }
+      .feature-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      .feature {
+        min-height: 220px;
+        padding: 25px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+      .feature-number { margin-bottom: 40px; color: var(--sun); font-size: 13px; font-weight: 800; letter-spacing: 0; }
+      .feature h3 { margin-bottom: 9px; font-size: 20px; }
+      .feature p { margin-bottom: 0; color: var(--muted); font-size: 14px; }
+
+      .about {
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        background: #eef4ec;
+      }
+      .about-grid { display: grid; grid-template-columns: .8fr 1.2fr; gap: 72px; align-items: start; }
+      .about h2 { margin-bottom: 0; font-size: 34px; line-height: 1.2; }
+      .about-copy { color: #526059; font-size: 17px; }
+      .about-copy p:last-child { margin-bottom: 0; }
+      .contact { background: var(--leaf-dark); color: #f5fbf5; }
+      .contact .section-heading p { color: #c4d8cc; }
+      .contact-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      .contact-item { padding-top: 20px; border-top: 1px solid rgba(214, 238, 225, .35); }
+      .contact-item span { display: block; margin-bottom: 7px; color: #a9c7b5; font-size: 12px; letter-spacing: 0; }
+      .contact-item a { color: #fff; text-decoration: none; }
+      .contact-item a:hover, .contact-item a:focus-visible { color: var(--mint); }
+      .contact-item strong { font-size: 16px; font-weight: 650; }
+
+      footer { padding: 28px 0 34px; background: #102f27; color: #b8cfc1; font-size: 12px; }
+      .footer-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+      .icp { color: #d9e9df; text-decoration: none; }
+      .icp:hover, .icp:focus-visible { text-decoration: underline; }
+      .footer-note { margin: 7px 0 0; color: #87aa96; }
+
+      @media (max-width: 760px) {
+        .shell { width: min(100% - 28px, 600px); }
+        .nav { min-height: 68px; }
+        .nav-links { gap: 13px; font-size: 12px; }
+        .hero { padding: 62px 0 54px; }
+        .hero-grid, .about-grid { grid-template-columns: 1fr; gap: 32px; }
+        h1 { font-size: 48px; }
+        .hero-copy { font-size: 16px; }
+        .section { padding: 58px 0; }
+        .section-heading h2, .about h2 { font-size: 29px; }
+        .feature-grid, .contact-grid { grid-template-columns: 1fr; }
+        .feature { min-height: auto; }
+        .feature-number { margin-bottom: 25px; }
+        .footer-row { display: block; }
+        .footer-row > * + * { margin-top: 8px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell nav">
+        <a class="brand" href="/" aria-label="Ferti.fun 首页">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18.8 4.8C13.2 4.9 8.4 6.3 6 9.5c-2.3 3.1-1.1 6.9 2 8.2 3.2 1.3 6.2-.9 7.1-4.2.7-2.7.1-5.6 3.7-8.7Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M4.7 19.5c2.9-4.1 6-6.7 10.4-8.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span>Ferti.fun</span>
+        </a>
+        <nav class="nav-links" aria-label="主要导航">
+          <a href="#services">服务</a>
+          <a href="#about">关于</a>
+          <a href="#contact">站点信息</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="shell hero-grid">
+          <div>
+            <p class="kicker">FERTI.FUN / DIGITAL SERVICES</p>
+            <h1>让每一次连接，都更简单。</h1>
+            <p class="hero-copy">Ferti 专注于构建清晰、可靠、易用的在线工具，为个人与团队提供稳定的数字化服务。</p>
+            <a class="hero-link" href="#services">了解我们的服务
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M5 12h13M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </a>
+          </div>
+          <aside class="hero-note">
+            <p class="hero-note-label">FERTI / PRINCIPLE</p>
+            <strong>把复杂的事，做得清楚。</strong>
+            <p>从信息整理到日常协作，我们持续打磨细节，让工具回到它本来应该有的样子：安静、直接、值得信赖。</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section" id="services">
+        <div class="shell">
+          <div class="section-heading">
+            <h2>为日常工作准备的数字工具</h2>
+            <p>我们从真实的使用场景出发，持续提供轻量、稳定、可理解的在线服务。</p>
+          </div>
+          <div class="feature-grid">
+            <article class="feature">
+              <div class="feature-number">01 / CLEAR</div>
+              <h3>清晰体验</h3>
+              <p>减少不必要的步骤与干扰，让重要信息更容易被看见和使用。</p>
+            </article>
+            <article class="feature">
+              <div class="feature-number">02 / STEADY</div>
+              <h3>稳定运行</h3>
+              <p>重视服务的连续性与可维护性，为日常工作提供可靠的基础。</p>
+            </article>
+            <article class="feature">
+              <div class="feature-number">03 / CARE</div>
+              <h3>尊重隐私</h3>
+              <p>以必要、透明为原则处理信息，并持续完善安全与隐私保护措施。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section about" id="about">
+        <div class="shell about-grid">
+          <h2>关于 Ferti</h2>
+          <div class="about-copy">
+            <p>Ferti.fun 是一个面向个人与团队的数字服务项目主页。我们相信，好的线上服务不需要喧闹的包装，而应该在每一次使用中都保持清楚、稳定和有回应。</p>
+            <p>目前网站处于持续建设阶段。我们会根据用户反馈迭代服务，并按照适用的法律法规完善网站信息与运营规范。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section contact" id="contact">
+        <div class="shell">
+          <div class="section-heading">
+            <h2>站点信息</h2>
+            <p>网站内容与服务正在持续完善，相关运营信息将在完成核验后发布。</p>
+          </div>
+          <div class="contact-grid">
+            <div class="contact-item"><span>DOMAIN</span><strong>ferti.fun</strong></div>
+            <div class="contact-item"><span>STATUS</span><strong>网站建设中</strong></div>
+            <div class="contact-item"><span>INFORMATION</span><strong>以实际审核与发布内容为准</strong></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="shell">
+        <div class="footer-row">
+          <span>© 2026 Ferti.fun. All rights reserved.</span>
+          <a class="icp" href="https://beian.miit.gov.cn/" rel="noopener noreferrer">ICP备案信息待取得后按要求更新</a>
+        </div>
+        <p class="footer-note">网站主体、备案编号及其他法定信息将以实际审核结果为准。</p>
+      </div>
+    </footer>
+  </body>
+</html>
